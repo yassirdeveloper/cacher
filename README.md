@@ -22,8 +22,9 @@ Cacher is a simple TCP server application written in Go that is designed to stor
    ```bash
    git clone https://github.com/yourusername/cacher.git
 2. Set Up Environment Variables:
-You can set the required environment variables in your terminal or through a .env file. The main variable is:
-CACHER_PORT: The port on which the server will listen (default is 6969).
+You can set the required environment variables in your terminal or through a .env file. The required variables are:
+    - CACHER_PORT: The port on which the server will listen
+    - CACHER_NBR_WORKERS: the number of workers/goroutines to run
 
 3. Install Dependencies (if any):
     ```bash
