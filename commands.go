@@ -1,7 +1,6 @@
 package main
 
 import (
-	"net"
 	"reflect"
 )
 
@@ -13,6 +12,7 @@ type CommandArgument struct {
 // if the option does not need a value it shall have a valueType of nil
 type CommandOption struct {
 	letter    rune
+	name      string
 	valueType reflect.Type
 }
 
@@ -23,19 +23,18 @@ type Command struct {
 	handler   func(args []string) ([]byte, error)
 }
 
-type Request struct {
-	*Command
-	connection net.Conn
+func (command *Command) Run(in []string) (string, Error) {
+	return "OK", nil
 }
 
 var GetCommand *Command = &Command{
 	arguments: map[string]*CommandArgument{
-		"key": {position: 0, valueType: reflect.TypeOf("s")},
+		"key": {position: 0, valueType: reflect.TypeOf(string(""))},
 	},
-	options: map[string]*CommandOption{},
-	handler: getHandler,
-}
-
-func getHandler(args []string) ([]byte, error) {
-	return []byte("success"), nil
+	options: map[string]*CommandOption{
+		"expiration": {letter: 'e', name: "expires", valueType: reflect.TypeOf(int(0))},
+	},
+	handler: func(in []string) ([]byte, error) {
+		return []byte("success"), nil
+	},
 }

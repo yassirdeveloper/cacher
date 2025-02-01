@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
 	"log"
 	"net"
@@ -22,7 +21,7 @@ type Server struct {
 	config      *ServerConfig
 	commands    map[string]*Command
 	logger      *Logger
-	connections chan net.Conn
+	connections chan Connection
 	wg          sync.WaitGroup
 }
 
@@ -41,7 +40,7 @@ func InitServer(port int, nbrWorkers int, logger *Logger) (*Server, error) {
 		config:      &ServerConfig{port: port, nbrWorkers: nbrWorkers},
 		commands:    commands,
 		logger:      logger,
-		connections: make(chan net.Conn),
+		connections: make(chan Connection),
 	}, nil
 }
 
@@ -65,61 +64,46 @@ func (server *Server) Start() {
 	server.wg.Wait()
 }
 
-func acceptConnections(server *Server, connections chan<- net.Conn) {
+func acceptConnections(server *Server, connections chan<- Connection) {
 	for {
 		conn, err := server.listener.Accept()
 		if err != nil {
 			server.logger.Error(&UnexpectedError{message: "Error accepting connection", err: err})
 			continue
 		}
-		server.logger.NewConnection(conn.RemoteAddr())
-		connections <- conn
+		connections <- NewTCPConnection(conn, *server.logger)
 	}
 }
 
-func worker(server *Server, connections <-chan net.Conn) {
+func worker(server *Server, connections <-chan Connection) {
 	for conn := range connections {
 		server.handleConnection(conn)
 	}
 }
 
-func (server *Server) handleConnection(connection net.Conn) {
+func (server *Server) handleConnection(connection Connection) {
 	defer connection.Close()
 
-	reader := bufio.NewReader(connection)
-	commandString, err := reader.ReadString('\n')
-	if err != nil {
-		server.logger.Error(&UnexpectedError{message: "Error reading command", err: err})
-		return
-	}
-	server.logger.Info(fmt.Sprintf("[%s] > %s", connection.RemoteAddr(), commandString))
-
-	l := strings.Split(commandString, " ")
-	commandName := strings.ToUpper(l[0])
+	commandString := connection.Read()
+	in := strings.Split(strings.TrimSpace(commandString), " ")
+	commandName := strings.ToUpper(in[0])
 	command := server.commands[commandName]
 	if command == nil {
-		_, err = connection.Write([]byte("invalid command"))
-		if err != nil {
-			server.logger.Error(&UnexpectedError{message: "Error writing to connection", err: err})
-			return
-		}
-		server.logger.Error(&InvalidCommandError{command: commandName})
+		invalidCommandError := &InvalidCommandError{command: commandName}
+		connection.Send(invalidCommandError.Display())
 	} else {
-		request := &Request{command, connection}
-		if command.write {
-			handleWriteRequest(request)
+		if len(in) == 1 {
+			invalidCommandUsageError := &InvalidCommandUsageError{command: commandName}
+			connection.Send(invalidCommandUsageError.Display())
 		} else {
-			handleReadRequest(request)
+			output, err := command.Run(in[1:])
+			if err != nil {
+				connection.Send(err.Display())
+			} else {
+				connection.Send(output)
+			}
 		}
 	}
-}
-
-func handleReadRequest(request *Request) {
-
-}
-
-func handleWriteRequest(request *Request) {
-
 }
 
 func handleShutdown(server *Server) {
