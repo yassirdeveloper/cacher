@@ -19,11 +19,12 @@ type ServerConfig struct {
 type Server struct {
 	listener    net.Listener
 	config      *ServerConfig
-	commands    map[string]*Command
 	logger      *Logger
 	connections chan Connection
 	wg          sync.WaitGroup
 }
+
+var Commands = InitCommands()
 
 func InitServer(port int, nbrWorkers int, logger *Logger) (*Server, error) {
 	listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%s", os.Getenv("CACHER_PORT")))
@@ -31,14 +32,9 @@ func InitServer(port int, nbrWorkers int, logger *Logger) (*Server, error) {
 		return nil, err
 	}
 
-	commands := map[string]*Command{
-		"GET": GetCommand,
-	}
-
 	return &Server{
 		listener:    listener,
 		config:      &ServerConfig{port: port, nbrWorkers: nbrWorkers},
-		commands:    commands,
 		logger:      logger,
 		connections: make(chan Connection),
 	}, nil
@@ -59,9 +55,6 @@ func (server *Server) Start() {
 
 	// Handle graceful shutdown
 	handleShutdown(server)
-
-	// Wait for workers to finish
-	server.wg.Wait()
 }
 
 func acceptConnections(server *Server, connections chan<- Connection) {
@@ -87,21 +80,20 @@ func (server *Server) handleConnection(connection Connection) {
 	commandString := connection.Read()
 	in := strings.Split(strings.TrimSpace(commandString), " ")
 	commandName := strings.ToUpper(in[0])
-	command := server.commands[commandName]
+	command := Commands[commandName]
 	if command == nil {
 		invalidCommandError := &InvalidCommandError{command: commandName}
 		connection.Send(invalidCommandError.Display())
 	} else {
-		if len(in) == 1 {
-			invalidCommandUsageError := &InvalidCommandUsageError{command: commandName}
-			connection.Send(invalidCommandUsageError.Display())
+		commandInput, err := command.Parse(in[1:])
+		if err != nil {
+			connection.Send(err.Display())
 		} else {
-			output, err := command.Run(in[1:])
+			output, err := command.Run(*commandInput)
 			if err != nil {
 				connection.Send(err.Display())
-			} else {
-				connection.Send(output)
 			}
+			connection.Send(output.String())
 		}
 	}
 }
