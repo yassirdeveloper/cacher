@@ -53,3 +53,7 @@ type UnexpectedError struct {
 func (e *UnexpectedError) Error() string {
 	return fmt.Sprintf("%s: %s", e.message, e.err)
 }
+
+func (e *UnexpectedError) Display() string {
+	return "Something went wrong!"
+}

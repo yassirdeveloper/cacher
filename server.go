@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 )
 
 type ServerConfig struct {
@@ -19,15 +20,16 @@ type ServerConfig struct {
 type Server struct {
 	listener    net.Listener
 	config      *ServerConfig
-	logger      *Logger
+	logger      Logger
 	connections chan Connection
+	shutdown    chan os.Signal
 	wg          sync.WaitGroup
 }
 
 var Commands = InitCommands()
 
-func InitServer(port int, nbrWorkers int, logger *Logger) (*Server, error) {
-	listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%s", os.Getenv("CACHER_PORT")))
+func NewServer(port int, nbrWorkers int, logger Logger) (*Server, error) {
+	listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
 	if err != nil {
 		return nil, err
 	}
@@ -36,13 +38,21 @@ func InitServer(port int, nbrWorkers int, logger *Logger) (*Server, error) {
 		listener:    listener,
 		config:      &ServerConfig{port: port, nbrWorkers: nbrWorkers},
 		logger:      logger,
+		shutdown:    nil,
 		connections: make(chan Connection),
 	}, nil
 }
 
 func (server *Server) Start() {
-	log.Printf("Listening on %s", server.listener.Addr())
-	server.logger.ServerStarted(server.listener.Addr())
+	log.Printf("Listening on %s", server.listener.Addr().String())
+	server.logger.Info(fmt.Sprintf("Server started on %s", server.listener.Addr()))
+
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	server.shutdown = sigChan
+
+	// Handle graceful shutdown
+	go handleShutdown(server)
 
 	// Create a worker pool
 	for i := 0; i < server.config.nbrWorkers; i++ {
@@ -53,22 +63,32 @@ func (server *Server) Start() {
 	// Accept connections and pass them to the worker pool
 	go acceptConnections(server, server.connections)
 
-	// Handle graceful shutdown
-	handleShutdown(server)
+	server.wg.Wait()
 }
 
 func acceptConnections(server *Server, connections chan<- Connection) {
 	for {
 		conn, err := server.listener.Accept()
 		if err != nil {
-			server.logger.Error(&UnexpectedError{message: "Error accepting connection", err: err})
-			continue
+			// Check if the listener is closed (graceful shutdown)
+			select {
+			case <-server.shutdown: // If shutdown is signaled, exit the loop
+				server.logger.Info("Connection acceptance stopped")
+				return
+			default:
+				if !isClosedConnectionError(err) {
+					server.logger.Error(&UnexpectedError{message: "Error accepting connection", err: err})
+				}
+			}
+		} else {
+			connections <- NewTCPConnection(conn, server.logger)
 		}
-		connections <- NewTCPConnection(conn, *server.logger)
 	}
 }
 
 func worker(server *Server, connections <-chan Connection) {
+	defer server.wg.Done()
+
 	for conn := range connections {
 		server.handleConnection(conn)
 	}
@@ -84,29 +104,43 @@ func (server *Server) handleConnection(connection Connection) {
 	if command == nil {
 		invalidCommandError := &InvalidCommandError{command: commandName}
 		connection.Send(invalidCommandError.Display())
-	} else {
-		commandInput, err := command.Parse(in[1:])
-		if err != nil {
-			connection.Send(err.Display())
-		} else {
-			output, err := command.Run(*commandInput)
-			if err != nil {
-				connection.Send(err.Display())
-			}
-			connection.Send(output.String())
-		}
+		return
 	}
+	commandInput, err := command.Parse(in[1:])
+	if err != nil {
+		connection.Send(err.Display())
+		return
+	}
+	output, err := command.Run(*commandInput)
+	if err != nil {
+		connection.Send(err.Display())
+		return
+	}
+	connection.Send(output.String())
 }
 
 func handleShutdown(server *Server) {
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	<-server.shutdown // Wait for a shutdown signal
 
+	server.logger.Info("Shutting down gracefully...")
+	server.listener.Close()   // Stop accepting new connections
+	close(server.connections) // Close the connections channel
+
+	// Wait for workers to finish with a timeout
+	done := make(chan struct{})
 	go func() {
-		<-sigChan
-		server.logger.Info("Shutting down gracefully...")
-		server.listener.Close()   // Close the listener to stop accepting new connections
-		close(server.connections) // Close the connections channel
-		server.wg.Wait()          // Want for current connections to finish processing
+		server.wg.Wait()
+		close(done)
 	}()
+
+	select {
+	case <-done:
+		server.logger.Info("Graceful shutdown complete")
+	case <-time.After(5 * time.Second):
+		server.logger.Warning("Forcing shutdown after timeout")
+	}
+}
+
+func isClosedConnectionError(err error) bool {
+	return strings.Contains(err.Error(), "use of closed network connection")
 }

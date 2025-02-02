@@ -26,7 +26,7 @@ func main() {
 	}
 	logger := NewLogger(logFile, logPrefix, log.Ldate|log.Ltime)
 
-	server, err := InitServer(port, nbrWorkers, logger)
+	server, err := NewServer(port, nbrWorkers, logger)
 	if err != nil {
 		log.Fatal("Error during init server: ", err)
 	}

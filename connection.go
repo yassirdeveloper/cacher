@@ -14,7 +14,7 @@ type Connection interface {
 
 type TCPConnection struct {
 	net.Conn
-	logger *Logger
+	logger Logger
 }
 
 func NewTCPConnection(conn net.Conn, logger Logger) *TCPConnection {
@@ -23,7 +23,7 @@ func NewTCPConnection(conn net.Conn, logger Logger) *TCPConnection {
 	}
 	connection := &TCPConnection{
 		Conn:   conn,
-		logger: &logger,
+		logger: logger,
 	}
 	connection.logger.NewConnection(conn.RemoteAddr())
 	return connection

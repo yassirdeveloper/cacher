@@ -13,7 +13,7 @@
             "program": "${workspaceFolder}",
             "env": {
                 "CACHER_PORT": "6969",
-                "CACHER_NBR_WORKERS": "1"
+                "CACHER_NBR_WORKERS": "2"
             }
         }
         

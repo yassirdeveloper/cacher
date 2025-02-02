@@ -30,7 +30,6 @@ func ParseValue(valueType string, value string) (interface{}, error) {
 }
 
 type CommandArgument struct {
-	name      string
 	position  int
 	valueType string
 }
