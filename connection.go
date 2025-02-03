@@ -51,7 +51,6 @@ func (connection *TCPConnection) Send(output string) {
 	}
 }
 
-// Implement the Close method
 func (connection *TCPConnection) Close() {
 	if connection.Conn == nil {
 		return

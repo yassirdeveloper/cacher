@@ -5,6 +5,7 @@ import (
 	_ "net/http/pprof"
 	"os"
 	"strconv"
+	"time"
 )
 
 func main() {
@@ -26,9 +27,12 @@ func main() {
 	}
 	logger := NewLogger(logFile, logPrefix, log.Ldate|log.Ltime)
 
-	server, err := NewServer(port, nbrWorkers, logger)
+	commandManager := NewCommandManager()
+	cacheManager := NewCacheManager[string, string]()
+
+	server, err := NewServer(port, nbrWorkers, logger, commandManager, cacheManager)
 	if err != nil {
 		log.Fatal("Error during init server: ", err)
 	}
-	server.Start()
+	server.Start(5 * time.Second)
 }

@@ -33,6 +33,18 @@ func (e *InvalidCommandUsageError) Display() string {
 	return fmt.Sprintf("Invalid usage of command: %s", e.command)
 }
 
+type CommandNotExecutableError struct {
+	command string
+}
+
+func (e *CommandNotExecutableError) Error() string {
+	return fmt.Sprintf("Command not executable: %s", e.command)
+}
+
+func (e *CommandNotExecutableError) Display() string {
+	return fmt.Sprintf("Command not executable: %s", e.command)
+}
+
 type CommandError struct {
 	message string
 }
