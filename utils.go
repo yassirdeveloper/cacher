@@ -5,8 +5,18 @@ import (
 	"strconv"
 )
 
+type ValueType int
+
+const (
+	NoType ValueType = iota
+	TypeInt
+	TypeFloat
+	TypeBool
+	TypeString
+)
+
 // ParseValue attempts to parse a string into the specified type.
-func ParseValue(valueType string, value string) (interface{}, error) {
+func ParseValue(valueType ValueType, value string) (interface{}, error) {
 	switch valueType {
 	case TypeInt:
 		return strconv.Atoi(value) // Parse string to int

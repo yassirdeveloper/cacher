@@ -4,18 +4,11 @@ import (
 	"slices"
 )
 
-const (
-	TypeInt    = "int"
-	TypeFloat  = "float"
-	TypeBool   = "bool"
-	TypeString = "string"
-)
-
 type commandArgument struct {
 	label       string
 	description string
 	position    int
-	valueType   string
+	valueType   ValueType
 }
 
 type commandOption struct {
@@ -23,7 +16,7 @@ type commandOption struct {
 	description string
 	letter      rune
 	name        string
-	valueType   *string // if the option does not need a value it shall have a valueType of nil
+	valueType   ValueType
 }
 
 type CommandInput interface {
@@ -45,8 +38,8 @@ func (c *commandInput) GetOption(opt commandOption) any {
 }
 
 type Command interface {
-	AddArgument(int, string) Command
-	AddOption(rune, string, string) Command
+	AddArgument(int, ValueType) Command
+	AddOption(rune, string, ValueType) Command
 	Parse([]string) (CommandInput, Error)
 }
 
@@ -60,7 +53,7 @@ func NewCommand(name string) Command {
 	return &command{Name: name}
 }
 
-func (c *command) AddArgument(position int, valueType string) Command {
+func (c *command) AddArgument(position int, valueType ValueType) Command {
 	c.Arguments = append(c.Arguments, commandArgument{
 		position:  position,
 		valueType: valueType,
@@ -68,11 +61,11 @@ func (c *command) AddArgument(position int, valueType string) Command {
 	return c
 }
 
-func (c *command) AddOption(letter rune, name string, valueType string) Command {
+func (c *command) AddOption(letter rune, name string, valueType ValueType) Command {
 	c.Options = append(c.Options, commandOption{
 		letter:    letter,
 		name:      name,
-		valueType: &valueType,
+		valueType: valueType,
 	})
 	return c
 }
@@ -107,13 +100,13 @@ func (c *command) Parse(input []string) (CommandInput, Error) {
 			index = slices.Index(input, opt.name)
 		}
 		if index != -1 {
-			if opt.valueType == nil {
+			if opt.valueType == NoType {
 				inputOpts[opt] = true
 			} else {
 				if index+1 >= inputLength {
 					return nil, &InvalidCommandUsageError{command: c.Name}
 				}
-				value, err := ParseValue(*opt.valueType, input[index+1])
+				value, err := ParseValue(opt.valueType, input[index+1])
 				if err != nil {
 					return nil, &InvalidCommandUsageError{command: c.Name}
 				}
@@ -126,4 +119,31 @@ func (c *command) Parse(input []string) (CommandInput, Error) {
 		arguments: inputArgs,
 		options:   inputOpts,
 	}, nil
+}
+
+type CommandManager interface {
+	Get(string) (Command, Error)
+	AddCommand(string, Command) CommandManager
+}
+
+type commandManager struct {
+	commands map[string]Command
+}
+
+func NewCommandManager() CommandManager {
+	command_manager := &commandManager{}
+	return command_manager
+}
+
+func (c *commandManager) AddCommand(commandName string, command Command) CommandManager {
+	c.commands[commandName] = command
+	return c
+}
+
+func (c *commandManager) Get(commandName string) (Command, Error) {
+	command := c.commands[commandName]
+	if command == nil {
+		return nil, &InvalidCommandError{command: commandName}
+	}
+	return command, nil
 }

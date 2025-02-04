@@ -7,6 +7,7 @@ import (
 )
 
 type Connection interface {
+	Log(LogType, string)
 	Read() string
 	Send(output string)
 	Close()
@@ -29,11 +30,16 @@ func NewTCPConnection(conn net.Conn, logger Logger) *TCPConnection {
 	return connection
 }
 
+func (connection *TCPConnection) Log(logType LogType, message string) {
+	connection.logger.Log(logType, message)
+}
+
 func (connection *TCPConnection) Read() string {
 	reader := bufio.NewReader(connection.Conn)
 	s, err := reader.ReadString('\n')
 	if err != nil {
-		connection.logger.Error(&UnexpectedError{message: "Error reading command", err: err})
+		err := &UnexpectedError{message: "Error reading command", err: err}
+		connection.Log(ErrorLog, err.Error())
 	}
 	connection.logger.Info(fmt.Sprintf("[%s] > %s", connection.RemoteAddr(), s))
 	return s
@@ -41,13 +47,15 @@ func (connection *TCPConnection) Read() string {
 
 func (connection *TCPConnection) Send(output string) {
 	if connection.Conn == nil {
-		connection.logger.Error(&UnexpectedError{message: "connection is not initialized", err: nil})
+		err := &UnexpectedError{message: "connection is not initialized", err: nil}
+		connection.Log(ErrorLog, err.Error())
 	}
 	_, err := (*connection).Write([]byte(output))
 	if err != nil {
-		connection.logger.Error(&UnexpectedError{message: "error sending data", err: err})
+		err := &UnexpectedError{message: "error sending data", err: err}
+		connection.Log(ErrorLog, err.Error())
 	} else {
-		connection.logger.Info(fmt.Sprintf("[%s] < %s", connection.RemoteAddr(), output))
+		connection.Log(InfoLog, fmt.Sprintf("[%s] < %s", connection.RemoteAddr(), output))
 	}
 }
 
@@ -57,6 +65,7 @@ func (connection *TCPConnection) Close() {
 	}
 	err := connection.Conn.Close()
 	if err != nil {
-		connection.logger.Error(&UnexpectedError{message: "error closing connection", err: err})
+		err := &UnexpectedError{message: "error closing connection", err: err}
+		connection.Log(ErrorLog, err.Error())
 	}
 }

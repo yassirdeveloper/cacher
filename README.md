@@ -9,6 +9,32 @@ Cacher is a simple TCP server application written in Go that is designed to stor
 - **Concurrency**: Handles multiple client connections simultaneously using goroutines.
 - **Environment Configuration**: Uses environment variables for configuration settings.
 
+## Project Structure Overview
+### cache.go :
+- Defines a Cache interface with methods like Get, Set, Delete, and Clear.
+- Implements two cache types:
+1. cache[K, V]: A standard map-based cache with an RWMutex for concurrency safety.
+2. syncCache[K, V]: A sync.Map-based cache for high-frequency access.
+- Provides a CacheManager to manage both cache types and select the appropriate one based on the frequentAccess flag.
+### command.go :
+- Defines Command and ExecutableCommand interfaces.
+- Implements command structs (setCommand, getCommand, etc.) that encapsulate parsing and execution logic.
+- Includes utility structs like commandArgument and commandOption for defining arguments and options.
+### connection.go :
+- Defines a Connection interface for handling client connections.
+- Implements TCPConnection to wrap net.Conn and provide logging, reading, sending, and closing functionality.
+### executor.go :
+- Defines the Executor interface to handle command execution.
+- Implements executor[K, V] to delegate execution to commands while managing the cache context.
+### server.go :
+- Defines a Server interface with methods for starting, shutting down, and handling connections.
+- Implements server[K, V] to coordinate between the listener, worker pool, CommandManager, CacheManager, and Executor.
+### main.go :
+- Configures the server by reading environment variables for port and number of workers.
+- Initializes the logger, CommandManager, CacheManager, and server.
+Starts the server with a graceful shutdown timeout.
+
+
 ## Getting Started
 
 ### Prerequisites

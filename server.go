@@ -11,14 +11,6 @@ import (
 	"time"
 )
 
-type LogType int
-
-const (
-	InfoLog LogType = iota
-	WarningLog
-	ErrorLog
-)
-
 type ServerConfig struct {
 	nbrWorkers int
 	port       int
@@ -29,7 +21,7 @@ type Server interface {
 	acceptConnection() (Connection, Error)
 	handleConnection(Connection)
 	CloseConnections()
-	Log(LogType, string, Error)
+	Log(LogType, string)
 	wait()
 	done()
 	ShutDown(time.Duration)
@@ -72,7 +64,7 @@ func (server *server[K, V]) acceptConnection() (Connection, Error) {
 		// Check if the listener is closed (graceful shutdown)
 		select {
 		case <-server.shutdown: // If shutdown is signaled, exit the loop
-			server.Log(InfoLog, "Connection acceptance stopped", nil)
+			server.Log(InfoLog, "Connection acceptance stopped")
 			return nil, nil
 		default:
 			if !isClosedConnectionError(err) {
@@ -127,19 +119,12 @@ func (server *server[K, V]) done() {
 	server.wg.Done()
 }
 
-func (server *server[K, V]) Log(logType LogType, message string, err Error) {
-	switch logType {
-	case InfoLog:
-		server.logger.Info(message)
-	case WarningLog:
-		server.logger.Warning(message)
-	case ErrorLog:
-		server.logger.Error(err)
-	}
+func (server *server[K, V]) Log(logType LogType, message string) {
+	server.logger.Log(logType, message)
 }
 
 func (server *server[K, V]) Start(timeout time.Duration) {
-	server.Log(InfoLog, fmt.Sprintf("Server started on %s", server.listener.Addr()), nil)
+	server.Log(InfoLog, fmt.Sprintf("Server started on %s", server.listener.Addr()))
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
@@ -165,7 +150,7 @@ func (server *server[K, V]) ShutDownChan() chan os.Signal {
 }
 
 func (server *server[K, V]) ShutDown(timeout time.Duration) {
-	server.Log(InfoLog, "Shutting down gracefully...", nil)
+	server.Log(InfoLog, "Shutting down gracefully...")
 	server.CloseConnections()
 	// Wait for workers to finish with a timeout
 	done := make(chan struct{})
@@ -176,9 +161,9 @@ func (server *server[K, V]) ShutDown(timeout time.Duration) {
 
 	select {
 	case <-done:
-		server.Log(InfoLog, "Graceful shutdown complete", nil)
+		server.Log(InfoLog, "Graceful shutdown complete")
 	case <-time.After(timeout):
-		server.Log(WarningLog, "Forcing shutdown after timeout", nil)
+		server.Log(WarningLog, "Forcing shutdown after timeout")
 	}
 }
 
@@ -186,7 +171,7 @@ func acceptConnections(server Server, connections chan<- Connection) {
 	for {
 		connection, err := server.acceptConnection()
 		if err != nil {
-			server.Log(ErrorLog, "", err)
+			server.Log(ErrorLog, err.Error())
 		} else {
 			connections <- connection
 		}
