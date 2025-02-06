@@ -29,6 +29,8 @@ func main() {
 
 	commandManager := NewCommandManager()
 	cacheManager := NewCacheManager[string, string]()
+	cacheManager.SetupMainCache(time.Minute)
+	cacheManager.SetupSyncCache(time.Minute * 5)
 
 	server, err := NewServer(port, nbrWorkers, logger, commandManager, cacheManager)
 	if err != nil {
