@@ -3,7 +3,6 @@ package main
 import (
 	"io"
 	"log"
-	"net"
 )
 
 type LogType int
@@ -19,7 +18,6 @@ type Logger interface {
 	Log(LogType, string)
 	Warning(string)
 	Info(string)
-	NewConnection(net.Addr)
 	GetLogs(*int) []string
 }
 
@@ -30,11 +28,6 @@ type logger struct {
 // NewLogger creates a new Logger instance with a specified prefix and flags.
 func NewLogger(file io.Writer, prefix string, flags int) *logger {
 	return &logger{log.New(file, prefix, flags)}
-}
-
-// NewConnection logs a message for a new connection.
-func (logger *logger) NewConnection(addr net.Addr) {
-	logger.Printf("New connection from %s", addr)
 }
 
 // Error logs a general error message.

@@ -1,13 +1,14 @@
 package main
 
 import (
+	"fmt"
 	"sync"
 	"time"
 )
 
 type CacheValue[V any] interface {
-	ExpiresAt() time.Time
 	Value() V
+	ExpiresAt() time.Time
 }
 
 type cacheValue[V any] struct {
@@ -15,28 +16,45 @@ type cacheValue[V any] struct {
 	expiresAt time.Time
 }
 
+func (c *cacheValue[V]) Value() V {
+	return *c.value
+}
+
+func (c *cacheValue[V]) ExpiresAt() time.Time {
+	return c.expiresAt
+}
+
 type Cache[K comparable, V any] interface {
-	Get(K) (CacheValue[V], bool)
-	Set(K, CacheValue[V])
+	get(K) (CacheValue[V], bool)
+	Get(K) (*V, bool)
+	set(K, CacheValue[V])
+	Set(K, V, time.Time)
 	Delete(K)
-	ClearExpired()
+	ClearExpired() int
 	Clear()
+	String() string
 }
 
 type cache[K comparable, V any] struct {
 	data    map[K]CacheValue[V]
 	records Records[K]
 	locker  sync.RWMutex
+	logger  Logger
 }
 
-func NewCache[K comparable, V any](precision time.Duration) *cache[K, V] {
+func NewCache[K comparable, V any](precision time.Duration, logger Logger) (*cache[K, V], Error) {
+	records, err := NewRecords[K](precision, logger)
+	if err != nil {
+		return nil, err
+	}
 	return &cache[K, V]{
 		data:    make(map[K]CacheValue[V]),
-		records: NewRecords[K](precision),
-	}
+		records: records,
+		logger:  logger,
+	}, nil
 }
 
-func (c *cache[K, V]) Get(key K) (CacheValue[V], bool) {
+func (c *cache[K, V]) get(key K) (CacheValue[V], bool) {
 	c.locker.RLock()
 	defer c.locker.RUnlock()
 	cacheValue, exists := c.data[key]
@@ -46,25 +64,49 @@ func (c *cache[K, V]) Get(key K) (CacheValue[V], bool) {
 	return cacheValue, true
 }
 
-func (c *cache[K, V]) Set(key K, value CacheValue[V]) {
+func (c *cache[K, V]) Get(key K) (*V, bool) {
+	cacheValue, ok := c.get(key)
+	if ok {
+		if cacheValue.ExpiresAt().After(time.Now()) {
+			c.logger.Warning(fmt.Sprintf("[MAIN_CACHE_EVENT] value with key %v exists after expired!", key))
+			return nil, false
+		}
+		value := cacheValue.Value()
+		return &value, true
+	}
+	c.logger.Info(fmt.Sprintf("[MAIN_CACHE_EVENT] Key not found: %v", key))
+	return nil, false
+}
+
+func (c *cache[K, V]) set(key K, value CacheValue[V]) {
 	c.locker.Lock()
 	defer c.locker.Unlock()
-	if oldVal, exists := c.Get(key); exists {
+	if oldVal, exists := c.get(key); exists {
 		c.records.Delete(key, oldVal.ExpiresAt())
 	}
 	c.data[key] = value
 	c.records.Add(key, value.ExpiresAt())
 }
 
+func (c *cache[K, V]) Set(key K, value V, expiresAt time.Time) {
+	if expiresAt.Before(time.Now()) {
+		c.logger.Warning(fmt.Sprintf("[MAIN_CACHE_EVENT] Attempted to set key %v with past expiration time", key))
+		return
+	}
+	c.set(key, &cacheValue[V]{value: &value, expiresAt: expiresAt})
+}
+
 func (c *cache[K, V]) Delete(key K) {
 	c.locker.Lock()
 	defer c.locker.Unlock()
-	cacheValue, ok := c.Get(key)
-	if ok {
-		expiresAt := cacheValue.ExpiresAt()
-		delete(c.data, key)
-		c.records.Delete(key, expiresAt)
+	cacheValue, ok := c.get(key)
+	if !ok {
+		c.logger.Info(fmt.Sprintf("[MAIN_CACHE_EVENT] tried to delete inexistant key: %v", key))
+		return
 	}
+	expiresAt := cacheValue.ExpiresAt()
+	delete(c.data, key)
+	c.records.Delete(key, expiresAt)
 }
 
 func (c *cache[K, V]) DeleteMany(keys []K) {
@@ -73,31 +115,47 @@ func (c *cache[K, V]) DeleteMany(keys []K) {
 	}
 }
 
-func (c *cache[K, V]) ClearExpired() {
+func (c *cache[K, V]) ClearExpired() int {
 	now := time.Now()
-	c.records.DeleteBefore(now, func(keys []K) {
+	c.logger.Info("[MAIN_CACHE_EVENT] clearing expired keys...")
+	nbrKeys := c.records.DeleteBefore(now, func(keys []K) {
 		c.DeleteMany(keys)
 	})
+	c.logger.Info(fmt.Sprintf("[MAIN_CACHE_EVENT] clearing expired keys done: cleared %d keys", nbrKeys))
+	return nbrKeys
 }
 
 func (c *cache[K, V]) Clear() {
+	c.logger.Info("[MAIN_CACHE_EVENT] clearing all...")
 	clear(c.data)
 	c.records.Clear()
+	c.logger.Info("[MAIN_CACHE_EVENT] clearing all done")
+}
+
+func (c *cache[K, V]) String() string {
+	return "Main Cache"
 }
 
 type syncCache[K comparable, V any] struct {
 	data    sync.Map
 	records Records[K]
+	logger  Logger
 }
 
-func NewSyncCache[K comparable, V any](precision time.Duration) *syncCache[K, V] {
+func NewSyncCache[K comparable, V any](precision time.Duration, logger Logger) (*syncCache[K, V], Error) {
+	records, err := NewRecords[K](precision, logger)
+	if err != nil {
+		return nil, err
+	}
+
 	return &syncCache[K, V]{
 		data:    sync.Map{},
-		records: NewRecords[K](precision),
-	}
+		records: records,
+		logger:  logger,
+	}, nil
 }
 
-func (c *syncCache[K, V]) Get(key K) (CacheValue[V], bool) {
+func (c *syncCache[K, V]) get(key K) (CacheValue[V], bool) {
 	value, exists := c.data.Load(key)
 	if exists {
 		return value.(CacheValue[V]), true
@@ -105,21 +163,45 @@ func (c *syncCache[K, V]) Get(key K) (CacheValue[V], bool) {
 	return nil, false
 }
 
-func (c *syncCache[K, V]) Set(key K, cacheValue CacheValue[V]) {
-	oldValue, ok := c.Get(key)
+func (c *syncCache[K, V]) Get(key K) (*V, bool) {
+	cacheValue, ok := c.get(key)
+	if ok {
+		if cacheValue.ExpiresAt().After(time.Now()) {
+			c.logger.Warning(fmt.Sprintf("[SYNC_CACHE_EVENT] value with key %v exists after expired!", key))
+			return nil, false
+		}
+		value := cacheValue.Value()
+		return &value, true
+	}
+	c.logger.Info(fmt.Sprintf("[SYNC_CACHE_EVENT] Key not found: %v", key))
+	return nil, false
+}
+
+func (c *syncCache[K, V]) set(key K, cacheValue CacheValue[V]) {
+	oldValue, ok := c.get(key)
 	if ok {
 		c.records.Delete(key, oldValue.ExpiresAt())
 	}
 	c.data.Store(key, cacheValue)
 }
 
-func (c *syncCache[K, V]) Delete(key K) {
-	cacheValue, ok := c.data.Load(key)
-	if ok {
-		expiresAt := cacheValue.(CacheValue[V]).ExpiresAt()
-		c.data.Delete(key)
-		c.records.Delete(key, expiresAt)
+func (c *syncCache[K, V]) Set(key K, value V, expiresAt time.Time) {
+	if expiresAt.Before(time.Now()) {
+		c.logger.Warning(fmt.Sprintf("[SYNC_CACHE_EVENT] Attempted to set key %v with past expiration time", key))
+		return
 	}
+	c.set(key, &cacheValue[V]{value: &value, expiresAt: expiresAt})
+}
+
+func (c *syncCache[K, V]) Delete(key K) {
+	cacheValue, ok := c.get(key)
+	if !ok {
+		c.logger.Info(fmt.Sprintf("[SYNC_CACHE_EVENT] tried to delete inexistant key: %v", key))
+		return
+	}
+	expiresAt := cacheValue.ExpiresAt()
+	c.data.Delete(key)
+	c.records.Delete(key, expiresAt)
 }
 
 func (c *syncCache[K, V]) DeleteMany(keys []K) {
@@ -128,49 +210,22 @@ func (c *syncCache[K, V]) DeleteMany(keys []K) {
 	}
 }
 
-func (c *syncCache[K, V]) ClearExpired() {
+func (c *syncCache[K, V]) ClearExpired() int {
 	now := time.Now()
-	c.records.DeleteBefore(now, func(keys []K) {
+	c.logger.Info("[SYNC_CACHE_EVENT] clearing expired keys...")
+	nbrKeys := c.records.DeleteBefore(now, func(keys []K) {
 		c.DeleteMany(keys)
 	})
+	c.logger.Info(fmt.Sprintf("[SYNC_CACHE_EVENT] clearing expired keys done: cleared %d keys", nbrKeys))
+	return nbrKeys
 }
 
 func (c *syncCache[K, V]) Clear() {
+	c.logger.Info("[SYNC_CACHE_EVENT] clearing all...")
 	c.data.Clear()
+	c.logger.Info("[SYNC_CACHE_EVENT] clearing all...")
 }
 
-type CacheManager[K comparable, V any] interface {
-	Get(bool) Cache[K, V]
-	SetupMainCache(time.Duration)
-	SetupSyncCache(time.Duration)
-	Clear()
-}
-
-type cacheManager[K comparable, V any] struct {
-	cache     Cache[K, V]
-	syncCache Cache[K, V]
-}
-
-func NewCacheManager[K comparable, V any]() CacheManager[K, V] {
-	return &cacheManager[K, V]{}
-}
-
-func (cm *cacheManager[K, V]) Get(frequentAccess bool) Cache[K, V] {
-	if frequentAccess {
-		return cm.syncCache
-	}
-	return cm.cache
-}
-
-func (cm *cacheManager[K, V]) SetupMainCache(precision time.Duration) {
-	cm.cache = NewCache[K, V](precision)
-}
-
-func (cm *cacheManager[K, V]) SetupSyncCache(precision time.Duration) {
-	cm.cache = NewSyncCache[K, V](precision)
-}
-
-func (cm *cacheManager[K, V]) Clear() {
-	cm.cache.Clear()
-	cm.syncCache.Clear()
+func (c *syncCache[K, V]) String() string {
+	return "Sync Cache"
 }

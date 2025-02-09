@@ -27,6 +27,6 @@ func ParseValue(valueType ValueType, value string) (interface{}, error) {
 	case TypeString:
 		return value, nil // No parsing needed for strings
 	default:
-		return nil, fmt.Errorf("unsupported type: %s", valueType)
+		return nil, fmt.Errorf("unsupported type")
 	}
 }

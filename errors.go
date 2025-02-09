@@ -69,3 +69,15 @@ func (e *UnexpectedError) Error() string {
 func (e *UnexpectedError) Display() string {
 	return "Something went wrong!"
 }
+
+type SetupError struct {
+	message string
+}
+
+func (e *SetupError) Error() string {
+	return e.message
+}
+
+func (e *SetupError) Display() string {
+	return e.message
+}

@@ -79,7 +79,11 @@ func (server *server[K, V]) acceptConnection() (Connection, Error) {
 func (server *server[K, V]) handleConnection(connection Connection) {
 	defer connection.Close()
 
-	commandString := connection.Read()
+	commandString, err := connection.Read()
+	if err != nil {
+		connection.Send(err.Display())
+		return
+	}
 	in := strings.Split(strings.TrimSpace(commandString), " ")
 	commandName := strings.ToUpper(in[0])
 	command, err := server.commandManager.Get(commandName)

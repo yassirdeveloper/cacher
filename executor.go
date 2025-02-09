@@ -6,10 +6,6 @@ type Result[T any] interface {
 	String() string
 }
 
-type result[T any] struct {
-	data T
-}
-
 type ExecutableCommand[K comparable, V any] interface {
 	Command
 	Run(input CommandInput, cache Cache[K, V]) (Result[V], Error)
@@ -34,6 +30,5 @@ func (ch *executor[K, V]) Execute(command ExecutableCommand[K, V], input Command
 	frequentAccessOption := input.GetOption(*FrequentAccessOption)
 	useSyncCache := frequentAccessOption != nil
 	cache := ch.cacheManager.Get(useSyncCache)
-
 	return command.Run(input, cache)
 }

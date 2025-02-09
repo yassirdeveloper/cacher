@@ -7,10 +7,9 @@ import (
 )
 
 type Connection interface {
-	Log(LogType, string)
-	Read() string
-	Send(output string)
-	Close()
+	Read() (string, Error)
+	Send(output string) Error
+	Close() Error
 }
 
 type TCPConnection struct {
@@ -26,46 +25,49 @@ func NewTCPConnection(conn net.Conn, logger Logger) *TCPConnection {
 		Conn:   conn,
 		logger: logger,
 	}
-	connection.logger.NewConnection(conn.RemoteAddr())
+	connection.logger.Info(fmt.Sprintf("[CONNECTION_EVENT] New connection from %s", conn.RemoteAddr()))
 	return connection
 }
 
-func (connection *TCPConnection) Log(logType LogType, message string) {
-	connection.logger.Log(logType, message)
-}
-
-func (connection *TCPConnection) Read() string {
+func (connection *TCPConnection) Read() (string, Error) {
 	reader := bufio.NewReader(connection.Conn)
 	s, err := reader.ReadString('\n')
 	if err != nil {
 		err := &UnexpectedError{message: "Error reading command", err: err}
-		connection.Log(ErrorLog, err.Error())
+		connection.logger.Error(fmt.Sprintf("[CONNECTION_EVENT] %s", err.Error()))
+		return "", err
 	}
-	connection.logger.Info(fmt.Sprintf("[%s] > %s", connection.RemoteAddr(), s))
-	return s
+	connection.logger.Info(fmt.Sprintf("[CONNECTION_EVENT] [%s] > %s", connection.RemoteAddr(), s))
+	return s, nil
 }
 
-func (connection *TCPConnection) Send(output string) {
+func (connection *TCPConnection) Send(output string) Error {
 	if connection.Conn == nil {
 		err := &UnexpectedError{message: "connection is not initialized", err: nil}
-		connection.Log(ErrorLog, err.Error())
+		connection.logger.Error(fmt.Sprintf("[CONNECTION_EVENT] %s", err.Error()))
+		return err
 	}
 	_, err := (*connection).Write([]byte(output))
 	if err != nil {
 		err := &UnexpectedError{message: "error sending data", err: err}
-		connection.Log(ErrorLog, err.Error())
-	} else {
-		connection.Log(InfoLog, fmt.Sprintf("[%s] < %s", connection.RemoteAddr(), output))
+		connection.logger.Error(fmt.Sprintf("[CONNECTION_EVENT] %s", err.Error()))
+		return err
 	}
+	connection.logger.Info(fmt.Sprintf("[CONNECTION_EVENT] [%s] < %s", connection.RemoteAddr(), output))
+	return nil
 }
 
-func (connection *TCPConnection) Close() {
+func (connection *TCPConnection) Close() Error {
 	if connection.Conn == nil {
-		return
+		err := &UnexpectedError{message: "tried closing inexistant connection", err: nil}
+		connection.logger.Error(fmt.Sprintf("[CONNECTION_EVENT] %s", err.Error()))
+		return err
 	}
 	err := connection.Conn.Close()
 	if err != nil {
 		err := &UnexpectedError{message: "error closing connection", err: err}
-		connection.Log(ErrorLog, err.Error())
+		connection.logger.Error(fmt.Sprintf("[CONNECTION_EVENT] %s", err.Error()))
+		return err
 	}
+	return nil
 }
